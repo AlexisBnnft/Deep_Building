@@ -26,6 +26,22 @@ The dataset used in this project consists of:
 
 The dataset is then preprocessed and split into training and validation sets, which for now correspond for 4 month  of training data and 1 month of validating. Data may be available upon request. 
 
+In the code the weather dataframe is formatted like so:
+| Date                | temperature | RH  | Tdew | wind | sun_rad | daily_rain |
+|---------------------|-------------|-----|------|------|---------|------------|
+| 2023-05-01 00:00:00 | 52.6        | 75.0| 44.8 | 9.2  | 0.0     | 0.00       |
+| 2023-05-01 01:00:00 | 52.4        | 75.0| 44.7 | 7.4  | 0.0     | 0.00       |
+
+The features don't have to be all present, and you can even have more weather features if you have some. 
+
+The terminal load dataframe is formated as so:
+| Date                | VAV2-33 | VAV2-17   | VAV2-29 | ... | VAV2-11 | VAV2-18 | VAV3-15 |
+|---------------------|---------|-----------|---------|-----|---------|---------|---------|
+| 2023-05-01 00:00:00 | 0.0     | 0.000000  | -100.0  | ... | 0.0     | 0.0     | 0.000000|
+| 2023-05-01 01:00:00 | 0.0     | -0.355917 | -100.0  | ... | 0.0     | 0.0     | 0.000000|
+
+
+
 ## Model Architecture
 The model architecture is based on a hybrid approach, combining Long Short-Term Memory (LSTM) networks to process the temporal load and weather data, and fully connected layers to generate the final load predictions.
 
