@@ -6,10 +6,10 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from sklearn.preprocessing import StandardScaler
 from dataset import TerminalLoadDataset, INPUT_WINDOW, OUTPUT_WINDOW
-
+from encoder import Encoder, Decoder
 
 class TerminalLoadPredictor(nn.Module):
-    def __init__(self, n_zones, n_weather_features, hidden_size=64, num_layers=2):
+    def __init__(self, n_zones, n_weather_features, hidden_size=64, num_layers=2, p_dropout=0):
         super().__init__()
         
         self.n_zones = n_zones
@@ -35,6 +35,7 @@ class TerminalLoadPredictor(nn.Module):
         self.fc = nn.Sequential(
             nn.Linear(hidden_size * 2, hidden_size),
             nn.ReLU(),
+            nn.Dropout(p_dropout),  # Add dropout for regularization
             nn.Linear(hidden_size, n_zones * OUTPUT_WINDOW)  # Full week prediction
         )
         
@@ -123,7 +124,7 @@ def train_model(model, train_loader, val_loader, epochs=50, learning_rate=0.001)
 
 
 
-def get_trained_model(terminal_loads_df, weather_df, n_epochs=50):
+def get_trained_model(terminal_loads_df, weather_df, n_epochs=50, p_dropout=0):
     # First, check if we have enough data
     print("Checking data availability...")
     print(f"Terminal loads date range: {terminal_loads_df.index.min()} to {terminal_loads_df.index.max()}")
@@ -176,7 +177,8 @@ def get_trained_model(terminal_loads_df, weather_df, n_epochs=50):
     print("\nInitializing model...")
     model = TerminalLoadPredictor(
         n_zones=len(terminal_loads_df.columns),
-        n_weather_features=len(weather_df.columns)
+        n_weather_features=len(weather_df.columns),
+        p_dropout=p_dropout
     )
     
     print("\nStarting training...")

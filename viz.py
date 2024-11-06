@@ -103,6 +103,7 @@ class PredictionVisualizer:
             plt.xlabel('Hours')
             plt.ylabel('Load')
             plt.grid(True, alpha=0.3)
+            plt.ylim(-100,100)
             plt.legend()
         
         plt.tight_layout()
@@ -198,3 +199,33 @@ def visualize_results(model, dataset, load_scaler, train_losses, val_losses,
     
     # Print metrics
     visualizer.print_metrics(sample_idx, zones_to_plot)
+
+
+def compare_results(models, train_losses, val_losses, model_names=None):
+    """
+    Compare results for multiple models.
+    
+    Args:
+        models: List of trained models
+        train_losses: List of training losses for each model
+        val_losses: List of validation losses for each model
+    """
+    for i, model in enumerate(models):
+        print(f"Model {i + 1}")
+        print("-" * 50)
+        print(model)
+        print("\n")
+    
+    # Plot training history
+    plt.figure(figsize=(12, 6))
+    for i, model in enumerate(models):
+        plt.plot(train_losses[i], label=f'{model_names[i]} Training Loss', alpha=0.7)
+        plt.plot(val_losses[i], label=f'{model_names[i]} Validation Loss', alpha=0.7)
+    plt.title('Model Training History')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.yscale('log')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.show()
