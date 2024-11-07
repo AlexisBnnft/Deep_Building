@@ -44,8 +44,9 @@ class TerminalLoadPredictor(nn.Module):
         loads_out, _ = self.loads_lstm(loads)
         
         # Process weather
+        print(loads.shape)
         weather_out, _ = self.weather_lstm(weather)
-        
+        print(weather.shape)
         # Combine features
         combined = torch.cat([loads_out[:, -1, :], weather_out[:, -1, :]], dim=1)
         
