@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import torch
 import torch.nn as nn
+import pickle
 from torch.utils.data import Dataset, DataLoader
 from sklearn.preprocessing import StandardScaler
 from dataset import TerminalLoadDataset, INPUT_WINDOW, OUTPUT_WINDOW
@@ -55,12 +56,14 @@ class TerminalLoadPredictor(nn.Module):
         predictions = []
 
         for t in range(self.output_window):
-            # Concatenate hidden state from past data with future weather at current time step
-            combined = torch.cat([past_hidden, future_out[:, t, :]], dim=1)  # (batch_size, hidden_size * 2)
-            
-            # Generate prediction for this time step
-            prediction = self.fc(combined)  # (batch_size, n_zones)
-            predictions.append(prediction)
+            if t < future_out.size(1):  # Ensure t is within bounds
+                # Concatenate hidden state from past data with future weather at current time step
+                combined = torch.cat([past_hidden, future_out[:, t, :]], dim=1)  # (batch_size, hidden_size * 2)
+                
+                # Generate prediction for this time step
+                prediction = self.fc(combined)  # (batch_size, n_zones)
+                predictions.append(prediction)
+        
         
         # Stack predictions to form the final sequence
         predictions = torch.stack(predictions, dim=1)  # (batch_size, output_window, n_zones)
@@ -239,3 +242,41 @@ def calculate_errors(model, dataset, load_scaler):
     
     #errors = all_predictions - all_targets
     return np.array(all_errors), np.array(all_predictions), np.array(all_targets)
+
+
+def load_all(model_path, data_path, model_class = TerminalLoadPredictor):
+    # Load the model state dictionary
+    # Load the other components
+    with open(data_path, 'rb') as f:
+        data = pickle.load(f)
+    
+    train_losses = data['train_losses']
+    val_losses = data['val_losses']
+    train_dataset = data['train_dataset']
+    val_dataset = data['val_dataset']
+    train_loader = data['train_loader']
+    val_loader = data['val_loader']
+
+
+    model = model_class(len(train_dataset.terminal_loads.columns), len(train_dataset.weather.columns))
+    model.load_state_dict(torch.load(model_path, weights_only=True))
+    
+    
+    return model, train_losses, val_losses, train_dataset, val_dataset, train_loader, val_loader
+
+def save_all(model, train_losses, val_losses, train_dataset, val_dataset, train_loader, val_loader, model_path, data_path):
+    # Save the model state dictionary
+    torch.save(model.state_dict(), model_path)
+    
+    # Save the other components
+    data = {
+        'train_losses': train_losses,
+        'val_losses': val_losses,
+        'train_dataset': train_dataset,
+        'val_dataset': val_dataset,
+        'train_loader': train_loader,
+        'val_loader': val_loader
+    }
+    
+    with open(data_path, 'wb') as f:
+        pickle.dump(data, f)

@@ -56,3 +56,24 @@ def tload_viz(tload_df):
     plt.ylabel('Time')
     plt.title('Building Wide Terminal Load Profile')
     plt.show()
+
+def error_viz(error_df):    
+    # Assuming tload_df is your DataFrame
+    # Create a copy of the DataFrame to avoid modifying the original
+    error_df = np.abs(error_df.copy())
+
+    # Define the custom colormap
+    cmap = plt.cm.viridis  # Red to Blue colormap
+    cmap.set_bad(color='black')  # Set color for NaN values
+
+    # Replace NaN values with a masked array
+    masked_array = np.ma.masked_invalid(error_df)
+
+    # Plot the DataFrame with the custom colormap
+    plt.figure(figsize=(25, 14))
+    plt.imshow(masked_array, aspect='auto', cmap=cmap, interpolation='nearest')
+    plt.colorbar(label='Error')
+    plt.xlabel('Vav')
+    plt.ylabel('Time')
+    plt.title('Absolute Error on the prediction on the validation set')
+    plt.show()
