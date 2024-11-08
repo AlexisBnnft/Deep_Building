@@ -50,7 +50,7 @@ class PredictionVisualizer:
         self.model.eval()
         with torch.no_grad():
             # Get sample data
-            (input_loads, input_weather), (target_loads, _) = self.dataset[sample_idx]
+            (input_loads, input_weather), (target_loads) = self.dataset[sample_idx]
             
             # Add batch dimension and move to device
             input_loads = input_loads.unsqueeze(0).to(self.device)
@@ -172,7 +172,7 @@ class PredictionVisualizer:
             print(f"RMSE: {rmse:.2f}")
 
 def visualize_results(model, dataset, load_scaler, train_losses, val_losses, 
-                     zones_names=None, sample_idx=0, zones_to_plot=None):
+                     zones_names=None, sample_idx=0, zones_to_plot=None, n_samples=None):
     """
     Wrapper function to create visualizer and generate all plots.
     
@@ -186,6 +186,8 @@ def visualize_results(model, dataset, load_scaler, train_losses, val_losses,
         sample_idx: Index of the sample to visualize
         zones_to_plot: List of zone indices to plot
     """
+    if n_samples is not None:
+        zones_to_plot = np.random.choice(len(dataset.terminal_loads.columns), n_samples, replace=False)
     visualizer = PredictionVisualizer(model, dataset, load_scaler, zones_names)
     
     # Plot training history
@@ -228,4 +230,74 @@ def compare_results(models, train_losses, val_losses, model_names=None):
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
+    plt.show()
+
+
+
+def plot_bad_samples_predictions(all_errors, all_predictions, all_targets, N_samples=5, N_zones=3, good_zones = False):
+    mean_absolute_errors = np.mean(np.abs(all_errors), axis=0)
+
+    # Get the sorted indices based on the mean absolute error
+    sorted_indices = np.argsort(mean_absolute_errors)
+
+    # Sort the columns of all_errors based on the sorted indices
+    sorted_all_errors = all_errors[:, sorted_indices]
+
+    if good_zones:
+        most_error_indices = sorted_indices[:N_zones] # Get the indices of the top N_zones zones with the least errors
+    else:
+        most_error_indices = sorted_indices[-N_zones:]  # Get the indices of the top N_zones zones with the most errors
+
+    # Plot some samples for the zones with the most errors in nested subplots
+    num_samples_to_plot = N_samples
+    fig, axs = plt.subplots(len(most_error_indices), 1, figsize=(15, 3 * len(most_error_indices)), sharex=True)
+
+    sample_ids = np.random.randint(0, all_predictions.shape[0], num_samples_to_plot)  # Randomly select some samples to plot
+
+    for i, idx in enumerate(most_error_indices):
+        # Create nested subplots for each sample within the current zone subplot
+        subfig = axs[i].inset_axes([0, 0, 1, 1])
+        subfig.set_title(f'Predictions vs True Values for Zone {idx}')
+        subfig.set_xlabel('Samples')
+        subfig.set_ylabel('Terminal Load')
+        subfig.set_ylim(-100, 100)
+
+        for j, sample_id in enumerate(sample_ids):
+            ax = subfig.inset_axes([j / num_samples_to_plot, 0, 1 / num_samples_to_plot, 1])
+            ax.plot(all_predictions[sample_id, :, idx], label='Predicted Value', color='red', alpha=0.5)
+            ax.plot(all_targets[sample_id, :, idx], label='True Value', color='blue', alpha=0.5)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_ylim(-100, 100)
+            if j == 0:
+                ax.legend()
+            else:
+                ax.set_yticklabels([])
+
+    # Remove y-tick labels from nested subplots
+    for ax in axs:
+        ax.set_yticklabels([])
+
+
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_dataset_error(all_errors):
+    # Calculate the mean absolute error for each column
+    mean_absolute_errors = np.mean(np.abs(all_errors), axis=0)
+
+    # Get the sorted indices based on the mean absolute error
+    sorted_indices = np.argsort(mean_absolute_errors)
+
+    # Sort the columns of all_errors based on the sorted indices
+    sorted_all_errors = all_errors[:, sorted_indices]
+
+    # Plot the sorted all_errors
+    plt.figure(figsize=(10, 5))
+    plt.imshow(np.sqrt(sorted_all_errors), aspect='auto', cmap='viridis')
+    plt.colorbar(label='sqrt of MSE Error')
+    plt.xlabel('Zones (sorted by error)')
+    plt.ylabel('Samples')
+    plt.title('Errors Sorted by Zone')
     plt.show()

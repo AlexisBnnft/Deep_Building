@@ -7,52 +7,63 @@ from torch.utils.data import Dataset, DataLoader
 from sklearn.preprocessing import StandardScaler
 from dataset import TerminalLoadDataset, INPUT_WINDOW, OUTPUT_WINDOW
 from encoder import Encoder, Decoder
+import json
 
 class TerminalLoadPredictor(nn.Module):
-    def __init__(self, n_zones, n_weather_features, hidden_size=64, num_layers=2, p_dropout=0):
+    def __init__(self, n_zones, n_weather_features, hidden_size=64, num_layers=2, p_dropout=0, output_window=OUTPUT_WINDOW):
         super().__init__()
         
         self.n_zones = n_zones
         self.n_weather_features = n_weather_features
         
         # LSTM for processing terminal loads
-        self.loads_lstm = nn.LSTM(
-            input_size=n_zones,
+        self.past_lstm = nn.LSTM(
+            input_size=n_zones + n_weather_features,  # combined input size for terminal load and weather
             hidden_size=hidden_size,
             num_layers=num_layers,
             batch_first=True
         )
         
-        # LSTM for processing weather data
-        self.weather_lstm = nn.LSTM(
+        # LSTM (or FC layers) for future weather data
+        self.future_weather_lstm = nn.LSTM(
             input_size=n_weather_features,
             hidden_size=hidden_size,
-            num_layers=num_layers,
+            num_layers=num_layers, 
             batch_first=True
         )
-        
-        # Fully connected layers
+                
         self.fc = nn.Sequential(
-            nn.Linear(hidden_size * 2, hidden_size),
+            nn.Linear(hidden_size * 2, hidden_size),  # combine past LSTM and future weather LSTM
             nn.ReLU(),
-            nn.Dropout(p_dropout),  # Add dropout for regularization
-            nn.Linear(hidden_size, n_zones * OUTPUT_WINDOW)  # Full week prediction
+            nn.Dropout(p_dropout),
+            nn.Linear(hidden_size, n_zones)  # predict terminal load for each zone at each future timestep
         )
         
-    def forward(self, loads, weather):
+        self.output_window = output_window
+        
+    def forward(self, past_tload_weather, future_weather):
         # Process loads
-        loads_out, _ = self.loads_lstm(loads)
         
+        _, (past_hidden, _) = self.past_lstm(past_tload_weather)  # (num_layers, batch_size, hidden_size)
+        past_hidden = past_hidden[-1]  # take the hidden state of the last layer
+
         # Process weather
-        print(loads.shape)
-        weather_out, _ = self.weather_lstm(weather)
-        print(weather.shape)
-        # Combine features
-        combined = torch.cat([loads_out[:, -1, :], weather_out[:, -1, :]], dim=1)
+
+        future_out, _ = self.future_weather_lstm(future_weather)  # (batch_size, future_seq_len, hidden_size)
         
-        # Generate predictions
-        predictions = self.fc(combined)
-        predictions = predictions.view(-1, OUTPUT_WINDOW, self.n_zones)
+        # Initialize output list for the full prediction window
+        predictions = []
+
+        for t in range(self.output_window):
+            # Concatenate hidden state from past data with future weather at current time step
+            combined = torch.cat([past_hidden, future_out[:, t, :]], dim=1)  # (batch_size, hidden_size * 2)
+            
+            # Generate prediction for this time step
+            prediction = self.fc(combined)  # (batch_size, n_zones)
+            predictions.append(prediction)
+        
+        # Stack predictions to form the final sequence
+        predictions = torch.stack(predictions, dim=1)  # (batch_size, output_window, n_zones)
         
         return predictions
 
@@ -77,14 +88,14 @@ def train_model(model, train_loader, val_loader, epochs=50, learning_rate=0.001)
         total_train_loss = 0
         batch_count = 0
         
-        for (input_loads, input_weather), (target_loads, _) in train_loader:
+        for (input_loads_weather, input_weather), target_loads in train_loader:
             # Move data to device
-            input_loads = input_loads.to(device)
+            input_loads_weather = input_loads_weather.to(device)
             input_weather = input_weather.to(device)
             target_loads = target_loads.to(device)
 
             # Forward pass
-            predictions = model(input_loads, input_weather)
+            predictions = model(input_loads_weather, input_weather)
             loss = criterion(predictions, target_loads)
             
             # Backward pass
@@ -104,12 +115,12 @@ def train_model(model, train_loader, val_loader, epochs=50, learning_rate=0.001)
         val_batch_count = 0
         
         with torch.no_grad():
-            for (input_loads, input_weather), (target_loads, _) in val_loader:
-                input_loads = input_loads.to(device)
+            for (input_loads_weather, input_weather), target_loads in val_loader:
+                input_loads_weather = input_loads_weather.to(device)
                 input_weather = input_weather.to(device)
                 target_loads = target_loads.to(device)
                 
-                predictions = model(input_loads, input_weather)
+                predictions = model(input_loads_weather, input_weather)
                 loss = criterion(predictions, target_loads)
                 
                 total_val_loss += loss.item()
@@ -186,3 +197,45 @@ def get_trained_model(terminal_loads_df, weather_df, n_epochs=50, p_dropout=0):
     train_losses, val_losses = train_model(model, train_loader, val_loader, epochs=n_epochs)
     
     return model, train_losses, val_losses, train_dataset, val_dataset, train_loader, val_loader
+
+
+
+def calculate_errors(model, dataset, load_scaler):
+    """
+    Calculate the L2 error for each prediction in the dataset.
+    """
+    model.eval()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+    
+    all_predictions = []
+    all_targets = []
+    all_errors = []
+    
+    with torch.no_grad():
+        for (input_loads, input_weather), target_loads in dataset:
+            input_loads = input_loads.unsqueeze(0).to(device)
+            input_weather = input_weather.unsqueeze(0).to(device)
+            target_loads = target_loads.unsqueeze(0).to(device)
+            
+            predictions = model(input_loads, input_weather)
+            #print(predictions)
+            #print(predictions.shape)    
+            
+            predictions = predictions.squeeze(0).cpu().numpy()
+            target_loads = target_loads.squeeze(0).cpu().numpy()
+
+            #print(predictions)
+            #print(predictions.shape)    
+            
+            predictions = load_scaler.inverse_transform(predictions)
+            target_loads = load_scaler.inverse_transform(target_loads)
+            errors = np.sum(np.power(predictions - target_loads, 2), axis=0)
+
+            all_predictions.append(predictions)
+            all_targets.append(target_loads) 
+            all_errors.append(errors)
+            
+    
+    #errors = all_predictions - all_targets
+    return np.array(all_errors), np.array(all_predictions), np.array(all_targets)

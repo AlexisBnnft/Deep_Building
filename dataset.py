@@ -55,37 +55,37 @@ class TerminalLoadDataset(Dataset):
         self.sequences = []
         total_length = input_window + output_window
         
-        # Only create sequences if we have enough continuous data
+         # Only create sequences if we have enough continuous data
         if len(self.normalized_loads) >= total_length:
             for i in range(0, len(self.normalized_loads) - total_length + 1, stride):
                 # Get sequences
-                input_loads = self.normalized_loads.iloc[i:i+input_window].values
-                input_weather = self.normalized_weather.iloc[i:i+input_window].values
+                past_loads = self.normalized_loads.iloc[i:i+input_window].values
+                past_weather = self.normalized_weather.iloc[i:i+input_window].values
+                future_weather = self.normalized_weather.iloc[i+input_window:i+total_length].values
                 target_loads = self.normalized_loads.iloc[i+input_window:i+total_length].values
-                target_weather = self.normalized_weather.iloc[i+input_window:i+total_length].values
+                
+                # Combine past loads and weather
+                past_tload_weather = np.concatenate((past_loads, past_weather), axis=1)
                 
                 # Only add if sequences are complete
-                if (input_loads.shape[0] == input_window and 
+                if (past_tload_weather.shape[0] == input_window and 
+                    future_weather.shape[0] == output_window and 
                     target_loads.shape[0] == output_window):
                     self.sequences.append((
-                        (input_loads, input_weather),
-                        (target_loads, target_weather)
+                        (past_tload_weather, future_weather),
+                        target_loads
                     ))
         
         print(f"Created {len(self.sequences)} valid sequences")
         if len(self.sequences) > 0:
             print(f"First sequence shapes:")
-            print(f"Input loads: {self.sequences[0][0][0].shape}")
-            print(f"Input weather: {self.sequences[0][0][1].shape}")
-            print(f"Target loads: {self.sequences[0][1][0].shape}")
-            print(f"Target weather: {self.sequences[0][1][1].shape}")
+            print(f"Past terminal load and weather: {self.sequences[0][0][0].shape}")
+            print(f"Future weather: {self.sequences[0][0][1].shape}")
+            print(f"Target loads: {self.sequences[0][1].shape}")
     
     def __len__(self):
         return len(self.sequences)
     
     def __getitem__(self, idx):
-        (input_loads, input_weather), (target_loads, target_weather) = self.sequences[idx]
-        return (
-            (torch.FloatTensor(input_loads), torch.FloatTensor(input_weather)),
-            (torch.FloatTensor(target_loads), torch.FloatTensor(target_weather))
-        )
+        (past_tload_weather, future_weather), target_loads = self.sequences[idx]
+        return (torch.FloatTensor(past_tload_weather), torch.FloatTensor(future_weather)), torch.FloatTensor(target_loads)
