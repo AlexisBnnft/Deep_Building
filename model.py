@@ -4,70 +4,80 @@ import numpy as np
 import torch
 import torch.nn as nn
 import pickle
+import joblib
 from torch.utils.data import Dataset, DataLoader
 from sklearn.preprocessing import StandardScaler
 from dataset import TerminalLoadDataset, INPUT_WINDOW, OUTPUT_WINDOW
 from encoder import Encoder, Decoder
 import json
 
+        
 class TerminalLoadPredictor(nn.Module):
-    def __init__(self, n_zones, n_weather_features, hidden_size=64, num_layers=2, p_dropout=0, output_window=OUTPUT_WINDOW):
+    def __init__(self, n_zones, n_weather_features, hidden_size=256, num_layers=2, p_dropout=0.2, output_window=OUTPUT_WINDOW, l2_lambda=0.0001):
         super().__init__()
         
         self.n_zones = n_zones
         self.n_weather_features = n_weather_features
+        self.l2_lambda = l2_lambda
         
-        # LSTM for processing terminal loads
+        # Add Layer Normalization
+        self.layer_norm_past = nn.LayerNorm(n_zones + n_weather_features)
+        self.layer_norm_weather = nn.LayerNorm(n_weather_features)
+        
+        # LSTM for processing terminal loads with increased dropout
         self.past_lstm = nn.LSTM(
-            input_size=n_zones + n_weather_features,  # combined input size for terminal load and weather
+            input_size=n_zones + n_weather_features,
             hidden_size=hidden_size,
             num_layers=num_layers,
-            batch_first=True
+            batch_first=True,
+            dropout=p_dropout if num_layers > 1 else 0
         )
         
-        # LSTM (or FC layers) for future weather data
+        # LSTM for future weather data
         self.future_weather_lstm = nn.LSTM(
             input_size=n_weather_features,
             hidden_size=hidden_size,
-            num_layers=num_layers, 
-            batch_first=True
+            num_layers=num_layers,
+            batch_first=True,
+            dropout=p_dropout if num_layers > 1 else 0
         )
-                
+        
+        # Add Batch Normalization before FC layers
+        self.batch_norm = nn.BatchNorm1d(hidden_size * 2)
+        
+        # Modified FC layers with dropout between them
         self.fc = nn.Sequential(
-            nn.Linear(hidden_size * 2, hidden_size),  # combine past LSTM and future weather LSTM
+            nn.Linear(hidden_size * 2, hidden_size),
             nn.ReLU(),
             nn.Dropout(p_dropout),
-            nn.Linear(hidden_size, n_zones)  # predict terminal load for each zone at each future timestep
+            nn.Linear(hidden_size, n_zones)
         )
         
         self.output_window = output_window
         
     def forward(self, past_tload_weather, future_weather):
-        # Process loads
+        # Apply Layer Normalization
+        past_tload_weather = self.layer_norm_past(past_tload_weather)
+        future_weather = self.layer_norm_weather(future_weather)
         
-        _, (past_hidden, _) = self.past_lstm(past_tload_weather)  # (num_layers, batch_size, hidden_size)
-        past_hidden = past_hidden[-1]  # take the hidden state of the last layer
+        _, (past_hidden, _) = self.past_lstm(past_tload_weather)
+        past_hidden = past_hidden[-1]
 
-        # Process weather
-
-        future_out, _ = self.future_weather_lstm(future_weather)  # (batch_size, future_seq_len, hidden_size)
+        # Get the last terminal load
+        last_tload = past_tload_weather[:, -1, :self.n_zones] # Get the last terminal load, size: (batch_size, n_zones)
         
-        # Initialize output list for the full prediction window
+        future_out, _ = self.future_weather_lstm(future_weather)
+        
         predictions = []
-
+        
         for t in range(self.output_window):
-            if t < future_out.size(1):  # Ensure t is within bounds
-                # Concatenate hidden state from past data with future weather at current time step
-                combined = torch.cat([past_hidden, future_out[:, t, :]], dim=1)  # (batch_size, hidden_size * 2)
-                
-                # Generate prediction for this time step
-                prediction = self.fc(combined)  # (batch_size, n_zones)
+            if t < future_out.size(1):
+                combined = torch.cat([past_hidden, future_out[:, t, :]], dim=1)
+                # Apply batch normalization to combined features
+                prediction = self.fc(combined)    
                 predictions.append(prediction)
         
-        
-        # Stack predictions to form the final sequence
-        predictions = torch.stack(predictions, dim=1)  # (batch_size, output_window, n_zones)
-        
+        predictions = torch.stack(predictions, dim=1)
         return predictions
 
 
@@ -84,6 +94,12 @@ def train_model(model, train_loader, val_loader, epochs=50, learning_rate=0.001)
     print(f"Training on device: {device}")
     print(f"Number of training batches: {len(train_loader)}")
     print(f"Number of validation batches: {len(val_loader)}")
+    def compute_l2_loss(model):
+        """Calculate L2 regularization loss"""
+        l2_loss = 0
+        for param in model.parameters():
+            l2_loss += torch.norm(param, p=2) ** 2
+        return l2_loss
     
     for epoch in range(epochs):
         # Training
@@ -99,7 +115,10 @@ def train_model(model, train_loader, val_loader, epochs=50, learning_rate=0.001)
 
             # Forward pass
             predictions = model(input_loads_weather, input_weather)
-            loss = criterion(predictions, target_loads)
+            
+            # Combine losses
+            l2_loss = compute_l2_loss(model)
+            loss = criterion(predictions, target_loads) + model.l2_lambda * l2_loss
             
             # Backward pass
             optimizer.zero_grad()
@@ -245,10 +264,8 @@ def calculate_errors(model, dataset, load_scaler):
 
 
 def load_all(model_path, data_path, model_class = TerminalLoadPredictor):
-    # Load the model state dictionary
     # Load the other components
-    with open(data_path, 'rb') as f:
-        data = pickle.load(f)
+    data = joblib.load(data_path)
     
     train_losses = data['train_losses']
     val_losses = data['val_losses']
@@ -257,10 +274,11 @@ def load_all(model_path, data_path, model_class = TerminalLoadPredictor):
     train_loader = data['train_loader']
     val_loader = data['val_loader']
 
-
+    # Instantiate the model with the correct arguments
     model = model_class(len(train_dataset.terminal_loads.columns), len(train_dataset.weather.columns))
-    model.load_state_dict(torch.load(model_path, weights_only=True))
     
+    # Load the model state dictionary
+    model.load_state_dict(torch.load(model_path))
     
     return model, train_losses, val_losses, train_dataset, val_dataset, train_loader, val_loader
 
@@ -278,5 +296,5 @@ def save_all(model, train_losses, val_losses, train_dataset, val_dataset, train_
         'val_loader': val_loader
     }
     
-    with open(data_path, 'wb') as f:
-        pickle.dump(data, f)
+    joblib.dump(data, data_path)
+

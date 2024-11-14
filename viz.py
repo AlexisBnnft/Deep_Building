@@ -253,7 +253,7 @@ def plot_bad_samples_predictions(all_errors, all_predictions, all_targets, N_sam
     fig, axs = plt.subplots(len(most_error_indices), 1, figsize=(15, 3 * len(most_error_indices)), sharex=True)
 
     sample_ids = np.random.randint(0, all_predictions.shape[0], num_samples_to_plot)  # Randomly select some samples to plot
-
+    print(sample_ids)
     for i, idx in enumerate(most_error_indices):
         # Create nested subplots for each sample within the current zone subplot
         subfig = axs[i].inset_axes([0, 0, 1, 1])
@@ -261,6 +261,7 @@ def plot_bad_samples_predictions(all_errors, all_predictions, all_targets, N_sam
         subfig.set_xlabel('Samples')
         subfig.set_ylabel('Terminal Load')
         subfig.set_ylim(-100, 100)
+    
 
         for j, sample_id in enumerate(sample_ids):
             ax = subfig.inset_axes([j / num_samples_to_plot, 0, 1 / num_samples_to_plot, 1])

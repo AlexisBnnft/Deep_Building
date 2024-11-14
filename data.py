@@ -17,13 +17,17 @@ def load_weather(data_path):
     weather = weather.drop(columns=['Date'])
     weather.resample('h').mean()
     weather.index = pd.to_datetime(weather.index)
+    weather.drop(columns=['daily_rain'], inplace=True)
     return weather
 
 
-def nan_viz(df):
+def nan_viz(df, wide = False):
     # Visualize NaN locations
     nan_locations = df.isna().astype(int)
-    plt.figure(figsize=(3, 2))
+    if wide:
+        plt.figure(figsize=(10, 5))
+    else:
+        plt.figure(figsize=(3, 2))
     plt.imshow(nan_locations, aspect='auto', cmap='gray', interpolation='nearest')
     plt.colorbar(label='NaN Indicator (1 = NaN, 0 = Non-NaN)')
     plt.xlabel('Columns')
