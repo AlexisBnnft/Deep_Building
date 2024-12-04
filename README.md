@@ -45,6 +45,8 @@ The terminal load dataframe is formated as so:
 ## Model Architecture
 The model architecture is based on a hybrid approach, combining Long Short-Term Memory (LSTM) networks to process the temporal load and weather data, and fully connected layers to generate the final load predictions.
 
+We have another model that employs a simplified Transformer architecture, focusing specifically on the encoder component to effectively capture complex temporal dependencies and interactions within the data. We process past terminal load and weather data through a projection layer that maps these inputs into a higher-dimensional space suitable for the Transformer. Simultaneously, future weather data undergoes a similar transformation. To incorporate temporal information, we add learnable positional encodings to both past and future embeddings, enabling the model to understand the sequential order of the data.
+
 ## Training and Evaluation
 The model is trained using PyTorch and optimized using the Adam optimizer. The training process minimizes the Mean Squared Error (MSE) loss between the predicted and actual load values.
 
