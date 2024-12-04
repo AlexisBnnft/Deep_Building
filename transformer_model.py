@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from dataset import TerminalLoadDataset, INPUT_WINDOW, OUTPUT_WINDOW    
 from torch.utils.data import DataLoader
-
+import joblib
 
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=5000):
@@ -25,8 +25,8 @@ class PositionalEncoding(nn.Module):
         return x + self.pe[:x.size(0)]
 
 class TransformerLoadPredictor(nn.Module):
-    def __init__(self, n_zones, n_weather_features, d_model=64, nhead=4, 
-                 num_layers=1, dim_feedforward=256, dropout=0.1):
+    def __init__(self, n_zones, n_weather_features, d_model=256, nhead=4, 
+                 num_layers=2, dim_feedforward=256, dropout=0.2):
         super().__init__()
         
         self.n_zones = n_zones
@@ -105,8 +105,7 @@ class TransformerLoadPredictor(nn.Module):
         
         return predictions
 
-def train_transformer_model(model, train_loader, val_loader, epochs=50, learning_rate=0.001, 
-                          warmup_steps=4000, ):
+def train_transformer_model(model, train_loader, val_loader, epochs=50, learning_rate=0.001,):
     
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     model = model.to(device)
@@ -120,13 +119,12 @@ def train_transformer_model(model, train_loader, val_loader, epochs=50, learning
     )
     
     # Cyclical learning rate
-    def cyclic_lr(step, step_size=500, min_lr=1e-6, max_lr=0.001):
-        cycle = math.floor(1 + step / (2 * step_size))
-        x = abs(step / step_size - 2 * cycle + 1)
+    def lr():
+        return 1e-5
         return min_lr + (max_lr - min_lr) * max(0, (1 - x))
     
     # Robust loss function
-    criterion = nn.SmoothL1Loss(beta=0.1)
+    criterion = nn.MSELoss()
     
     train_losses = []
     val_losses = []
@@ -148,7 +146,7 @@ def train_transformer_model(model, train_loader, val_loader, epochs=50, learning
             target_loads = target_loads.to(device)
             
             # Update learning rate
-            lr = cyclic_lr(total_steps)
+            lr = lr()
             for param_group in optimizer.param_groups:
                 param_group['lr'] = lr
             
@@ -268,18 +266,54 @@ def get_trained_model(terminal_loads_df, weather_df, n_epochs=50, p_dropout=0.1)
     model = TransformerLoadPredictor(
         n_zones=len(terminal_loads_df.columns),
         n_weather_features=len(weather_df.columns),
-        d_model=64,
+        d_model=256,
         nhead=4,
-        num_layers=1
+        num_layers=2
     )
     print("\nStarting training...")
     train_losses, val_losses = train_transformer_model(
                             model,
                             train_loader,
                             val_loader,
-                            epochs=100,
+                            epochs=n_epochs,
                             learning_rate=0.0001,
-                            warmup_steps=1000
                         )
+    
+    return model, train_losses, val_losses, train_dataset, val_dataset, train_loader, val_loader
+
+def save_all(model, train_losses, val_losses, train_dataset, val_dataset, train_loader, val_loader, model_path, data_path):
+    # Save the model state dictionary
+    torch.save(model.state_dict(), model_path)
+    
+    # Save the other components
+    data = {
+        'train_losses': train_losses,
+        'val_losses': val_losses,
+        'train_dataset': train_dataset,
+        'val_dataset': val_dataset,
+        'train_loader': train_loader,
+        'val_loader': val_loader
+    }
+    
+    joblib.dump(data, data_path)
+
+
+
+def load_all(model_path, data_path, model_class = TransformerLoadPredictor):
+    # Load the other components
+    data = joblib.load(data_path)
+    
+    train_losses = data['train_losses']
+    val_losses = data['val_losses']
+    train_dataset = data['train_dataset']
+    val_dataset = data['val_dataset']
+    train_loader = data['train_loader']
+    val_loader = data['val_loader']
+
+    # Instantiate the model with the correct arguments
+    model = model_class(len(train_dataset.terminal_loads.columns), len(train_dataset.weather.columns))
+    
+    # Load the model state dictionary
+    model.load_state_dict(torch.load(model_path))
     
     return model, train_losses, val_losses, train_dataset, val_dataset, train_loader, val_loader

@@ -1,4 +1,3 @@
-
 import pandas as pd
 import numpy as np
 import torch
@@ -81,7 +80,7 @@ class TerminalLoadPredictor(nn.Module):
         return predictions
 
 
-def train_model(model, train_loader, val_loader, epochs=50, learning_rate=0.001):
+def train_model(model, train_loader, val_loader, epochs=50, learning_rate=0.0001):
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     model = model.to(device)
     

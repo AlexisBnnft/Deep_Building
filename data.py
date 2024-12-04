@@ -40,7 +40,7 @@ def nan_viz(df, wide = False):
     return all_nan_days
 
 
-def tload_viz(tload_df):    
+def tload_viz(tload_df, small = False, title = "Building Wide Terminal Load Profile"):    
     # Assuming tload_df is your DataFrame
     # Create a copy of the DataFrame to avoid modifying the original
     tload_df_copy = tload_df.copy()
@@ -53,12 +53,15 @@ def tload_viz(tload_df):
     masked_array = np.ma.masked_invalid(tload_df_copy)
 
     # Plot the DataFrame with the custom colormap
-    plt.figure(figsize=(25, 14))
-    plt.imshow(masked_array, aspect='auto', cmap=cmap, interpolation='nearest')
+    if small:
+        plt.figure(figsize=(25, 5))
+    else:
+        plt.figure(figsize=(25, 14))
+    plt.imshow(masked_array, aspect='auto', cmap=cmap, interpolation='nearest', vmin=-100, vmax=100)
     plt.colorbar(label='Value')
     plt.xlabel('Vav')
     plt.ylabel('Time')
-    plt.title('Building Wide Terminal Load Profile')
+    plt.title(title)
     plt.show()
 
 def error_viz(error_df):    

@@ -5,8 +5,8 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from sklearn.preprocessing import StandardScaler
 
-INPUT_WINDOW = 24 # 1 week of hourly data
-OUTPUT_WINDOW = 24 # 2 day of hourly data
+INPUT_WINDOW = 7 * 24 # 1 day of hourly data
+OUTPUT_WINDOW = 24 # 1 day of hourly data
 STRIDE = 24  # Move forward by 1 day
 
 class TerminalLoadDataset(Dataset):
